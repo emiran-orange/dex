@@ -302,13 +302,23 @@ func newServer(ctx context.Context, c Config, rotationStrategy rotationStrategy)
 
 		err = c.PrometheusRegistry.Register(requestCounter)
 		if err != nil {
-			return nil, fmt.Errorf("server: Failed to register Prometheus HTTP metrics: %v", err)
+			return nil, fmt.Errorf("server: Failed to register Prometheus HTTP requests count metric: %v", err)
 		}
+
+		requestDuration := prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "http_requests_duration",
+			Help: "Duration of HTTP requests.",
+		}, []string{"handler", "code", "method"})
+		err = c.PrometheusRegistry.Register(requestDuration)
+		if err != nil {
+            return nil, fmt.Errorf("server: Failed to register Prometheus HTTP request duration metric: %v", err)
+        }
 
 		instrumentHandlerCounter = func(handlerName string, handler http.Handler) http.HandlerFunc {
 			return func(w http.ResponseWriter, r *http.Request) {
 				m := httpsnoop.CaptureMetrics(handler, w, r)
 				requestCounter.With(prometheus.Labels{"handler": handlerName, "code": strconv.Itoa(m.Code), "method": r.Method}).Inc()
+				requestDuration.With(prometheus.Labels{"handler": handlerName, "code": strconv.Itoa(m.Code), "method": r.Method}).Add(m.Duration.Round(time.Microsecond).Seconds())
 			}
 		}
 	}
